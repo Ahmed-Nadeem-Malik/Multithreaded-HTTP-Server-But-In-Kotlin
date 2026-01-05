@@ -1,6 +1,8 @@
 package org.example
 
 import java.net.Socket
+import java.time.LocalDateTime
+import java.time.temporal.TemporalAmount
 
 fun main() {
     val socket = Socket("learnxinyminutes.com", 80)
@@ -13,9 +15,13 @@ fun main() {
     writer.write("Host: learnxinyminutes.com\r\n")
     writer.write("Connection: close\r\n")
     writer.write("\r\n")
+    val startTime = System.nanoTime()
     writer.flush()
+    val finishTime = System.nanoTime()
 
     reader.forEachLine { println(it) }
+    println("---------------------------")
+    println(finishTime - startTime)
 
     socket.close()
 
