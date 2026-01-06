@@ -8,9 +8,21 @@ import java.io.BufferedReader
 import java.net.ServerSocket
 import java.net.Socket
 
+// ============ Constants ============
+
 private val statusTexts = mapOf(
     200 to "OK", 201 to "Created", 204 to "No Content", 404 to "Not Found", 500 to "Internal Server Error"
 )
+
+// ============ Types ============
+
+data class HTTP(
+    val method: String, val path: String, val headers: Map<String, String>, val body: String
+)
+
+typealias Handler = (HTTP, Socket) -> Unit
+
+// ============ Cached Responses ============
 
 object CachedResponses {
     val index = buildResponse(200, "text/html", loadResource("/index.html") ?: "")
@@ -20,23 +32,15 @@ object CachedResponses {
     val favicon = buildResponse(204, "text/plain", "")
 }
 
-fun buildResponse(status: Int, contentType: String, body: String): ByteArray {
-    val statusText = statusTexts[status] ?: "Unknown"
-    val bodyBytes = body.toByteArray()
-    val header =
-        "HTTP/1.1 $status $statusText\r\nContent-Type: $contentType\r\nContent-Length: ${bodyBytes.size}\r\n\r\n"
-    return header.toByteArray() + bodyBytes
-}
-
-fun loadResource(path: String): String? = object {}.javaClass.getResource(path)?.readText()
-
-typealias Handler = (HTTP, Socket) -> Unit
+// ============ Entry Point ============
 
 fun main() = runBlocking {
     val server = ServerSocket(8000, 1000)
     server.reuseAddress = true
     val routes = initRoutes()
     val dispatcher = Dispatchers.IO.limitedParallelism(512)
+
+    println("Server running on http://localhost:8000")
 
     while (true) {
         val client = server.accept()
@@ -46,25 +50,29 @@ fun main() = runBlocking {
     }
 }
 
+// ============ Request Handling ============
+
 suspend fun handleClient(client: Socket, routes: Map<Pair<String, String>, Handler>) = withContext(Dispatchers.IO) {
     try {
         client.tcpNoDelay = true
         client.use { socket ->
             val reader = socket.getInputStream().bufferedReader()
-            val request = parsing(reader)
+            val request = parseRequest(reader)
             val route = request.method.uppercase() to request.path
 
-            when (val handler = routes[route]) {
-                null -> socket.getOutputStream().write(CachedResponses.notFound)
-                else -> handler(request, socket)
+            val handler = routes[route]
+            if (handler != null) {
+                handler(request, socket)
+            } else {
+                socket.getOutputStream().write(CachedResponses.notFound)
             }
         }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
     }
 }
 
-fun parsing(reader: BufferedReader): HTTP {
-    val requestLine = reader.readLine() ?: throw IllegalStateException("Empty")
+fun parseRequest(reader: BufferedReader): HTTP {
+    val requestLine = reader.readLine() ?: throw IllegalStateException("Empty request")
     val firstSpace = requestLine.indexOf(' ')
     val secondSpace = requestLine.indexOf(' ', firstSpace + 1)
     val method = requestLine.substring(0, firstSpace)
@@ -85,20 +93,29 @@ fun parsing(reader: BufferedReader): HTTP {
     return HTTP(method, path, headers, body)
 }
 
-data class HTTP(val method: String, val path: String, val headers: Map<String, String>, val body: String)
+// ============ Routes ============
 
-fun initRoutes(): Map<Pair<String, String>, Handler> {
-    val routes = mutableMapOf<Pair<String, String>, Handler>()
+fun initRoutes(): Map<Pair<String, String>, Handler> = mapOf(("GET" to "/") to { _, socket ->
+    socket.getOutputStream().write(CachedResponses.index)
+}, ("GET" to "/css/style.css") to { _, socket ->
+    socket.getOutputStream().write(CachedResponses.css)
+}, ("GET" to "/js/script.js") to { _, socket ->
+    socket.getOutputStream().write(CachedResponses.js)
+}, ("GET" to "/favicon.ico") to { _, socket ->
+    socket.getOutputStream().write(CachedResponses.favicon)
+}, ("POST" to "/echo") to { request, socket ->
+    val response = buildResponse(201, "application/json", """{"received":"${request.body}"}""")
+    socket.getOutputStream().write(response)
+})
 
-    routes["GET" to "/"] = { _, socket -> socket.getOutputStream().write(CachedResponses.index) }
-    routes["GET" to "/css/style.css"] = { _, socket -> socket.getOutputStream().write(CachedResponses.css) }
-    routes["GET" to "/js/script.js"] = { _, socket -> socket.getOutputStream().write(CachedResponses.js) }
-    routes["GET" to "/favicon.ico"] = { _, socket -> socket.getOutputStream().write(CachedResponses.favicon) }
+// ============ Helpers ============
 
-    routes["POST" to "/echo"] = { request, socket ->
-        val response = buildResponse(201, "application/json", """{"received":"${request.body}"}""")
-        socket.getOutputStream().write(response)
-    }
-
-    return routes
+fun buildResponse(status: Int, contentType: String, body: String): ByteArray {
+    val statusText = statusTexts[status] ?: "Unknown"
+    val bodyBytes = body.toByteArray()
+    val header =
+        "HTTP/1.1 $status $statusText\r\nContent-Type: $contentType\r\nContent-Length: ${bodyBytes.size}\r\n\r\n"
+    return header.toByteArray() + bodyBytes
 }
+
+fun loadResource(path: String): String? = object {}.javaClass.getResource(path)?.readText()
