@@ -40,7 +40,14 @@ tasks.register<JavaExec>("runCoroutines") {
 
 tasks.register<JavaExec>("runVirtualThreads") {
     group = "application"
-    description = "Run the virtual threads server"
+    description = "Run the original virtual threads server (port 8000)"
+    mainClass.set("org.example.VirtualThreadServerOriginalKt")
+    classpath = sourceSets["main"].runtimeClasspath
+}
+
+tasks.register<JavaExec>("runVirtualThreadsNIO") {
+    group = "application"
+    description = "Run the virtual threads server with NIO optimization (port 8001)"
     mainClass.set("org.example.VirtualThreadServerKt")
     classpath = sourceSets["main"].runtimeClasspath
 }
