@@ -80,7 +80,7 @@ fun main() = runBlocking {
     val server = ServerSocket(8000, 1000)
     server.reuseAddress = true
     val routes = initRoutes()
-    val dispatcher = Dispatchers.IO.limitedParallelism(512)
+    val dispatcher = Dispatchers.IO.limitedParallelism(1024)
 
     println("Server running on http://localhost:8000")
 
